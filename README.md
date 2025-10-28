@@ -298,7 +298,7 @@ stages:
             --name $(appName) --resource-group $(rgName) \
             --revision-weight $OLD_REV=100 $NEW_REV=0
 
-            ```
+```
 ## ⏰ 10. Scheduled Scaling (KEDA Cron)
 To stop non-prod environments after 5 PM:
 
@@ -317,8 +317,9 @@ properties:
               start: "0 9 * * 1-5"     # Scale up at 9AM
               end:   "0 17 * * 1-5"    # Scale down at 5PM
               desiredReplicas: "1"
-  ```
-Apply via:
+```
+
+## Apply via:
 
 ```
 az containerapp update -n app-orders-dev -g rg-app-dev --yaml scale.yaml
