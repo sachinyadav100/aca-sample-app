@@ -33,8 +33,7 @@ VNET (10.0.0.0/16)
 ├── snet-aca (10.0.2.0/24) ← Container Apps Environment (internal, zones 1–3)
 └── snet-shared(10.0.3.0/24) ← Optional shared resources
 
-markdown
-Copy code
+
 
 - **App Gateway** is deployed with **zone redundancy (zones 1–3)**  
 - **ACA Environment** is deployed as **internal**, also multi-zone  
@@ -60,8 +59,8 @@ az network vnet subnet create -g rg-app-dev --vnet-name vnet-dev \
   -n snet-appgw --address-prefix 10.0.1.0/24
 Rule: App Gateway and ACA must have their own subnets. Azure requires dedicated subnets per managed service.
 
-🧱 2. Create Azure Container Registry (ACR)
-bash
+###🧱 2. Create Azure Container Registry (ACR)
+```bash
 Copy code
 az acr create -n acrskumar01dev -g rg-app-dev --sku Premium --admin-enabled false
 🧩 3. Create Azure Container Apps Environment (Internal)
