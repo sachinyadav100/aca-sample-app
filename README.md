@@ -46,8 +46,9 @@ VNET (10.0.0.0/16)
 ## 🏗️ 1. Networking & Core Infrastructure Setup
 
 ### 1.1 Create Resource Group
-```bash
+```
 az group create -n rg-app-dev -l westeurope
+```
 1.2 Create Virtual Network and Subnets
 bash
 Copy code
