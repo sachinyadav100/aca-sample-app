@@ -49,7 +49,7 @@ VNET (10.0.0.0/16)
 ```
 az group create -n rg-app-dev -l westeurope
 ```
-###1.2 Create Virtual Network and Subnets
+### 1.2 Create Virtual Network and Subnets
 ```
 az network vnet create -g rg-app-dev -n vnet-dev \
   --address-prefix 10.0.0.0/16 \
@@ -60,11 +60,11 @@ az network vnet subnet create -g rg-app-dev --vnet-name vnet-dev \
 ```
 - Rule: App Gateway and ACA must have their own subnets. Azure requires dedicated subnets per managed service.
 
-**##🧱 2. Create Azure Container Registry (ACR)**
+## 🧱 2. Create Azure Container Registry (ACR)
 ```
 az acr create -n acrskumar01dev -g rg-app-dev --sku Premium --admin-enabled false
 ```
-**##🧩 3. Create Azure Container Apps Environment (Internal)**
+## 🧩 3. Create Azure Container Apps Environment (Internal)
 ```
 az containerapp env create -n cae-dev -g rg-app-dev \
   --internal-only true \
@@ -72,7 +72,7 @@ az containerapp env create -n cae-dev -g rg-app-dev \
   --infrastructure-subnet-resource-id $(az network vnet subnet show \
       -g rg-app-dev --vnet-name vnet-dev -n snet-aca --query id -o tsv)
 ```
-**##🐳 4. Create a Sample Container App (Internal Ingress)**
+## 🐳 4. Create a Sample Container App (Internal Ingress)
 ```
 az containerapp create -n app-orders-dev -g rg-app-dev \
   --environment cae-dev \
@@ -87,13 +87,13 @@ az containerapp create -n app-orders-dev -g rg-app-dev \
 az containerapp show -n app-orders-dev -g rg-app-dev --query properties.configuration.ingress.fqdn -o tsv
 ```
 
-**##🌐 5. Create Application Gateway v2 (Public + Private Frontends)**
-**###5.1 Create Public and Private IPs**
+## 🌐 5. Create Application Gateway v2 (Public + Private Frontends)
+### 5.1 Create Public and Private IPs
 ```
 az network public-ip create -g rg-app-dev -n agw-pip-public --sku Standard
 az network public-ip create -g rg-app-dev -n agw-pip-private --sku Standard --allocation-method Static --vnet-name vnet-dev
 ```
-**###5.2 Create Application Gateway**
+### 5.2 Create Application Gateway
 ```
 az network application-gateway create -n agw-dev -g rg-app-dev \
   --sku WAF_v2 \
@@ -106,7 +106,7 @@ az network application-gateway create -n agw-dev -g rg-app-dev \
 
 - App Gateway v2 automatically provides zone redundancy within the subnet.
 
-**##🔀 6. Add Backend Pools (Container Apps)**
+## 🔀 6. Add Backend Pools (Container Apps)
 
 Use internal FQDNs from ACA as backends (these are stable endpoints).
 
@@ -118,7 +118,7 @@ az network application-gateway address-pool create \
 ```
 Repeat per app (e.g., bp-inventory-dev).
 
-**##🔧 7. Add HTTP Settings and Health Probes**
+## 🔧 7. Add HTTP Settings and Health Probes
 ```
 az network application-gateway http-settings create \
   -g rg-app-dev --gateway-name agw-dev \
@@ -144,7 +144,7 @@ az network application-gateway http-settings update \
   --set probe.id=$(az network application-gateway probe show -g rg-app-dev -n probe-orders-dev --gateway-name agw-dev --query id -o tsv)
 ```
 
-**##🌍 8. Create Listeners and Routing Rules**
+## 🌍 8. Create Listeners and Routing Rules
 Public Listener (for public app)
 ```
 az network application-gateway listener create \
@@ -186,13 +186,13 @@ az network application-gateway rule create \
   --http-settings https-inventory-dev
 
   ```
-**✅ Now your App Gateway has:
+✅ Now your App Gateway has:
 
 Public apps → public frontend listener
 
 Internal apps → private frontend listener**
 
-**##🔄 9. Azure DevOps Pipeline (Blue/Green + 2hr Bake + Rollback)**
+## 🔄 9. Azure DevOps Pipeline (Blue/Green + 2hr Bake + Rollback)
 
 Save this as azure-pipelines.yml:
 
@@ -299,7 +299,7 @@ stages:
             --revision-weight $OLD_REV=100 $NEW_REV=0
 
             ```
-**##⏰ 10. Scheduled Scaling (KEDA Cron)**
+## ⏰ 10. Scheduled Scaling (KEDA Cron)
 To stop non-prod environments after 5 PM:
 
 ```
