@@ -1,10 +1,6 @@
-# azure-pipelines.yml
-trigger:
-  branches: { include: [ main ] }
-
+# azure-pipelines.yml (excerpt)
 parameters:
   - name: env
-    displayName: Environment
     type: string
     default: dev
     values: [ dev, preprod, prod ]
@@ -12,74 +8,112 @@ parameters:
 variables:
   serviceName: orders
   rgName: rg-app-$(env)
-  acrName: acrskumar01$(env)                # e.g., acrskumar01dev
+  acrName: acrskumar01$(env)
   appName: app-$(serviceName)-$(env)
   imageRepo: $(acrName).azurecr.io/$(serviceName)
-  imageTag: $(Build.SourceVersion)          # immutable tag = commit SHA
-
-pool:
-  vmImage: ubuntu-latest
+  imageTag: $(Build.SourceVersion)
 
 stages:
-- stage: build_and_deploy
-  displayName: Build, push, deploy (blue/green)
+- stage: build_deploy
+  displayName: Build, push, deploy new revision
   jobs:
-  - job: run
+  - job: deploy
+    pool: ubuntu-latest
     steps:
     - checkout: self
 
-    # Build & push image to ACR, then update the Container App to use it
+    # Build + push + update Container App (creates new revision)
     - task: AzureContainerApps@1
-      displayName: Build+Push to ACR and Update Container App (new revision)
+      displayName: Build/Push + Update Container App (new revision)
       inputs:
-        azureSubscription: 'sc-aca-$(parameters.env)'   # your ARM service connection (OIDC)
+        azureSubscription: 'sc-aca-$(parameters.env)'
         appSourcePath: '$(Build.SourcesDirectory)'
         acrName: '$(acrName)'
         containerAppName: '$(appName)'
         resourceGroup: '$(rgName)'
-        # Use existing Dockerfile; the task builds and pushes $(imageRepo):$(imageTag)
-        # It also updates the Container App's image, creating a new revision.
 
-    # OPTIONAL: capture latest active revision name (helpful for traffic ops)
+    # Capture NEW and OLD (active) revisions
     - task: AzureCLI@2
-      displayName: Capture latest active revision
+      displayName: Capture old & new active revisions
       inputs:
         azureSubscription: 'sc-aca-$(parameters.env)'
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
           set -e
-          NEW_REV=$(az containerapp revision list \
+          ACTIVE_REVS=($(az containerapp revision list \
             --name $(appName) --resource-group $(rgName) \
-            --query "[?properties.active].name | [-1]" -o tsv)
+            --query "[?properties.active].name" -o tsv))
+          NEW_REV=${ACTIVE_REVS[-1]}
+          OLD_REV=""
+          if [ ${#ACTIVE_REVS[@]} -gt 1 ]; then
+            OLD_REV=${ACTIVE_REVS[-2]}
+          fi
           echo "##vso[task.setvariable variable=NEW_REV]$NEW_REV"
-          echo "New active revision: $NEW_REV"
+          echo "##vso[task.setvariable variable=OLD_REV]$OLD_REV"
 
-    # Shift a slice of traffic to the new revision (blue/green canary step)
+    # 100% to NEW, keep OLD at 0% (hot standby)
     - task: AzureCLI@2
-      displayName: Shift 10% traffic to new revision
+      displayName: Route 100% new / 0% old
       inputs:
         azureSubscription: 'sc-aca-$(parameters.env)'
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
           set -e
-          # Send 10% to the new rev, 90% to 'latest' (adjust to taste)
-          az containerapp ingress traffic set \
-            --name $(appName) --resource-group $(rgName) \
-            --revision-weight $(NEW_REV)=10 latest=90
+          if [ -n "$(OLD_REV)" ]; then
+            az containerapp ingress traffic set \
+              --name $(appName) --resource-group $(rgName) \
+              --revision-weight $(NEW_REV)=100 $(OLD_REV)=0
+          else
+            az containerapp ingress traffic set \
+              --name $(appName) --resource-group $(rgName) \
+              --revision-weight $(NEW_REV)=100
+          fi
 
-    # TODO: run smoke tests against $(appName) FQDN here.
-    # If tests pass, send 100% traffic to new revision, otherwise roll back.
+    # Bake window = 2 hours (agentless)
+    - task: Delay@1
+      displayName: Wait 120 minutes (bake window)
+      inputs:
+        delayForMinutes: '120'
 
+    # Deactivate OLD when happy
     - task: AzureCLI@2
-      displayName: Promote to 100%
+      displayName: Deactivate old revision
+      condition: and(succeeded(), ne(variables['OLD_REV'], ''))
       inputs:
         azureSubscription: 'sc-aca-$(parameters.env)'
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
           set -e
+          az containerapp revision deactivate \
+            --name $(appName) --resource-group $(rgName) \
+            --revision $(OLD_REV)
+
+# Manual Rollback stage (run if the team reports issues)
+- stage: rollback
+  displayName: Manual rollback to previous revision
+  dependsOn: []
+  condition: succeededOrFailed()    # allow manual run at any time
+  jobs:
+  - job: flip_traffic_back
+    pool: ubuntu-latest
+    steps:
+    - task: AzureCLI@2
+      displayName: Set traffic 100% to OLD revision
+      inputs:
+        azureSubscription: 'sc-aca-$(parameters.env)'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -e
+          # discover two most recent active revisions again
+          ACTIVE_REVS=($(az containerapp revision list \
+            --name $(appName) --resource-group $(rgName) \
+            --query "[?properties.active].name" -o tsv))
+          NEW_REV=${ACTIVE_REVS[-1]}
+          OLD_REV=${ACTIVE_REVS[-2]}
           az containerapp ingress traffic set \
             --name $(appName) --resource-group $(rgName) \
-            --revision-weight $(NEW_REV)=100
+            --revision-weight $OLD_REV=100 $NEW_REV=0
