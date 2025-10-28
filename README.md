@@ -49,52 +49,52 @@ VNET (10.0.0.0/16)
 ```
 az group create -n rg-app-dev -l westeurope
 ```
-1.2 Create Virtual Network and Subnets
-bash
-Copy code
+**###1.2 Create Virtual Network and Subnets**
+```
 az network vnet create -g rg-app-dev -n vnet-dev \
   --address-prefix 10.0.0.0/16 \
   --subnet-name snet-aca --subnet-prefix 10.0.2.0/24
 
 az network vnet subnet create -g rg-app-dev --vnet-name vnet-dev \
   -n snet-appgw --address-prefix 10.0.1.0/24
-Rule: App Gateway and ACA must have their own subnets. Azure requires dedicated subnets per managed service.
+```
+- Rule: App Gateway and ACA must have their own subnets. Azure requires dedicated subnets per managed service.
 
-###🧱 2. Create Azure Container Registry (ACR)
-```bash
-Copy code
+**##🧱 2. Create Azure Container Registry (ACR)**
+```
 az acr create -n acrskumar01dev -g rg-app-dev --sku Premium --admin-enabled false
-🧩 3. Create Azure Container Apps Environment (Internal)
-bash
-Copy code
+```
+**##🧩 3. Create Azure Container Apps Environment (Internal)**
+```
 az containerapp env create -n cae-dev -g rg-app-dev \
   --internal-only true \
   --zone-redundant true \
   --infrastructure-subnet-resource-id $(az network vnet subnet show \
       -g rg-app-dev --vnet-name vnet-dev -n snet-aca --query id -o tsv)
-🐳 4. Create a Sample Container App (Internal Ingress)
-bash
-Copy code
+```
+**##🐳 4. Create a Sample Container App (Internal Ingress)**
+```
 az containerapp create -n app-orders-dev -g rg-app-dev \
   --environment cae-dev \
   --image nginx \
   --target-port 80 \
   --ingress internal \
   --min-replicas 1 --max-replicas 3
-Retrieve internal FQDN:
+```
+**Retrieve internal FQDN:**
 
-bash
-Copy code
+```
 az containerapp show -n app-orders-dev -g rg-app-dev --query properties.configuration.ingress.fqdn -o tsv
-🌐 5. Create Application Gateway v2 (Public + Private Frontends)
-5.1 Create Public and Private IPs
-bash
-Copy code
+```
+
+**##🌐 5. Create Application Gateway v2 (Public + Private Frontends)**
+**###5.1 Create Public and Private IPs**
+```
 az network public-ip create -g rg-app-dev -n agw-pip-public --sku Standard
 az network public-ip create -g rg-app-dev -n agw-pip-private --sku Standard --allocation-method Static --vnet-name vnet-dev
-5.2 Create Application Gateway
-bash
-Copy code
+```
+**###5.2 Create Application Gateway**
+```
 az network application-gateway create -n agw-dev -g rg-app-dev \
   --sku WAF_v2 \
   --capacity 2 \
@@ -102,22 +102,24 @@ az network application-gateway create -n agw-dev -g rg-app-dev \
   --subnet snet-appgw \
   --zones 1 2 3 \
   --public-ip-address agw-pip-public
-App Gateway v2 automatically provides zone redundancy within the subnet.
+```
 
-🔀 6. Add Backend Pools (Container Apps)
+- App Gateway v2 automatically provides zone redundancy within the subnet.
+
+**##🔀 6. Add Backend Pools (Container Apps)**
+
 Use internal FQDNs from ACA as backends (these are stable endpoints).
 
-bash
-Copy code
+```
 az network application-gateway address-pool create \
   -g rg-app-dev --gateway-name agw-dev \
   -n bp-orders-dev \
   --servers app-orders-dev.internal.<your-env>.azurecontainerapps.io
+```
 Repeat per app (e.g., bp-inventory-dev).
 
-🔧 7. Add HTTP Settings and Health Probes
-bash
-Copy code
+**##🔧 7. Add HTTP Settings and Health Probes**
+```
 az network application-gateway http-settings create \
   -g rg-app-dev --gateway-name agw-dev \
   -n https-orders-dev \
@@ -131,18 +133,20 @@ az network application-gateway probe create \
   -n probe-orders-dev \
   --protocol Https --path /healthz \
   --pick-hostname-from-backend-http-settings true
-Attach probe:
+```
 
-bash
-Copy code
+**Attach probe:**
+
+```
 az network application-gateway http-settings update \
   -g rg-app-dev --gateway-name agw-dev \
   -n https-orders-dev \
   --set probe.id=$(az network application-gateway probe show -g rg-app-dev -n probe-orders-dev --gateway-name agw-dev --query id -o tsv)
-🌍 8. Create Listeners and Routing Rules
+```
+
+**##🌍 8. Create Listeners and Routing Rules**
 Public Listener (for public app)
-bash
-Copy code
+```
 az network application-gateway listener create \
   -g rg-app-dev --gateway-name agw-dev \
   -n orders-listener \
@@ -150,9 +154,10 @@ az network application-gateway listener create \
   --frontend-ip agw-pip-public \
   --host-names orders.dev.example.com \
   --ssl-cert orders-cert
+```
+
 Private Listener (for internal app)
-bash
-Copy code
+```
 az network application-gateway listener create \
   -g rg-app-dev --gateway-name agw-dev \
   -n inventory-listener \
@@ -160,9 +165,10 @@ az network application-gateway listener create \
   --frontend-ip agw-pip-private \
   --host-names inventory.dev.example.local \
   --ssl-cert internal-cert
+  ```
+
 Routing Rules
-bash
-Copy code
+```
 az network application-gateway rule create \
   -g rg-app-dev --gateway-name agw-dev \
   -n orders-rule \
@@ -178,17 +184,19 @@ az network application-gateway rule create \
   --rule-type Basic \
   --address-pool bp-inventory-dev \
   --http-settings https-inventory-dev
-✅ Now your App Gateway has:
+
+  ```
+**✅ Now your App Gateway has:
 
 Public apps → public frontend listener
 
-Internal apps → private frontend listener
+Internal apps → private frontend listener**
 
-🔄 9. Azure DevOps Pipeline (Blue/Green + 2hr Bake + Rollback)
+**##🔄 9. Azure DevOps Pipeline (Blue/Green + 2hr Bake + Rollback)**
+
 Save this as azure-pipelines.yml:
 
-yaml
-Copy code
+```
 trigger:
   branches: [ main ]
 
@@ -289,11 +297,12 @@ stages:
           az containerapp ingress traffic set \
             --name $(appName) --resource-group $(rgName) \
             --revision-weight $OLD_REV=100 $NEW_REV=0
-⏰ 10. Scheduled Scaling (KEDA Cron)
+
+            ```
+**##⏰ 10. Scheduled Scaling (KEDA Cron)**
 To stop non-prod environments after 5 PM:
 
-yaml
-Copy code
+```
 properties:
   template:
     scale:
@@ -308,12 +317,14 @@ properties:
               start: "0 9 * * 1-5"     # Scale up at 9AM
               end:   "0 17 * * 1-5"    # Scale down at 5PM
               desiredReplicas: "1"
+  ```
 Apply via:
 
-bash
-Copy code
+```
 az containerapp update -n app-orders-dev -g rg-app-dev --yaml scale.yaml
-🔐 11. Security Best Practices
+
+```
+**🔐 11. Security Best Practices**
 Disable ACR Admin User
 
 Use Managed Identities for image pulls (AcrPull role)
@@ -324,30 +335,10 @@ Restrict App Gateway inbound with NSGs/WAF rules
 
 Use Private DNS Zone for internal ACA FQDNs
 
-🧱 12. Terraform Next Steps (Optional)
-Once verified, export configuration:
 
-bash
-Copy code
-az containerapp show -n app-orders-dev -g rg-app-dev > app.json
-az network application-gateway show -n agw-dev -g rg-app-dev > appgw.json
-Model resources using:
-
-azurerm_container_app_environment
-
-azurerm_container_app
-
-azurerm_application_gateway
-
-azurerm_container_registry
-
-Parameterize:
-
-env, location, appName, acrName, scale_rules
 
 ✅ Final Architecture
-pgsql
-Copy code
+```
                   ┌──────────────────────┐
                   │     Internet (443)   │
                   └─────────┬────────────┘
@@ -371,6 +362,8 @@ Copy code
       Container Apps Environment (Internal, Multi-Zone)
                        │
                     [ACR + Log Analytics + VNET]
+
+                    ```
 🧠 Key Takeaways
 1 subnet per service, not per zone — HA is achieved via zone redundancy
 
