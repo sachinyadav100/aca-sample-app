@@ -49,7 +49,7 @@ VNET (10.0.0.0/16)
 ```
 az group create -n rg-app-dev -l westeurope
 ```
-**###1.2 Create Virtual Network and Subnets**
+###1.2 Create Virtual Network and Subnets
 ```
 az network vnet create -g rg-app-dev -n vnet-dev \
   --address-prefix 10.0.0.0/16 \
